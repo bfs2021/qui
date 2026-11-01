@@ -41,6 +41,136 @@ func newTestCrossSeedHandler(t *testing.T) (*CrossSeedHandler, *models.CrossSeed
 	return &CrossSeedHandler{service: svc}, store
 }
 
+func TestAutomationSettingsPutCarriesSourceSettings(t *testing.T) {
+	handler, store := newTestCrossSeedHandler(t)
+
+	put := func(body string) {
+		t.Helper()
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodPut, "/api/cross-seed/settings", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		resp := httptest.NewRecorder()
+		handler.UpdateAutomationSettings(resp, req)
+		require.Equal(t, http.StatusOK, resp.Code, resp.Body.String())
+	}
+
+	get := func() (*models.CrossSeedAutomationSettings, string) {
+		t.Helper()
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/cross-seed/settings", nil)
+		resp := httptest.NewRecorder()
+		handler.GetAutomationSettings(resp, req)
+		require.Equal(t, http.StatusOK, resp.Code)
+
+		var settings models.CrossSeedAutomationSettings
+		require.NoError(t, json.NewDecoder(strings.NewReader(resp.Body.String())).Decode(&settings))
+		return &settings, resp.Body.String()
+	}
+
+	sourceFields := func(s *models.CrossSeedAutomationSettings) map[string]any {
+		return map[string]any{
+			"rssAutomationTags":              s.RSSAutomationTags,
+			"seededSearchTags":               s.SeededSearchTags,
+			"completionSearchTags":           s.CompletionSearchTags,
+			"webhookTags":                    s.WebhookTags,
+			"inheritSourceTags":              s.InheritSourceTags,
+			"rssSourceCategories":            s.RSSSourceCategories,
+			"rssSourceTags":                  s.RSSSourceTags,
+			"rssSourceExcludeCategories":     s.RSSSourceExcludeCategories,
+			"rssSourceExcludeTags":           s.RSSSourceExcludeTags,
+			"webhookSourceCategories":        s.WebhookSourceCategories,
+			"webhookSourceTags":              s.WebhookSourceTags,
+			"webhookSourceExcludeCategories": s.WebhookSourceExcludeCategories,
+			"webhookSourceExcludeTags":       s.WebhookSourceExcludeTags,
+			"skipAutoResumeRss":              s.SkipAutoResumeRSS,
+			"skipAutoResumeSeededSearch":     s.SkipAutoResumeSeededSearch,
+			"skipAutoResumeCompletion":       s.SkipAutoResumeCompletion,
+			"skipAutoResumeWebhook":          s.SkipAutoResumeWebhook,
+			"skipPieceBoundarySafetyCheck":   s.SkipPieceBoundarySafetyCheck,
+		}
+	}
+
+	// A PUT body carrying every source field stores those values.
+	put(`{
+		"seasonPackCoverageThreshold": 0.75,
+		"rssAutomationTags": ["rss"],
+		"seededSearchTags": ["seeded"],
+		"completionSearchTags": ["completion"],
+		"webhookTags": ["webhook"],
+		"inheritSourceTags": true,
+		"rssSourceCategories": ["movies"],
+		"rssSourceTags": ["ubuntu"],
+		"rssSourceExcludeCategories": ["games"],
+		"rssSourceExcludeTags": ["linux"],
+		"webhookSourceCategories": ["tv"],
+		"webhookSourceTags": ["anime"],
+		"webhookSourceExcludeCategories": ["xxx"],
+		"webhookSourceExcludeTags": ["music"],
+		"skipAutoResumeRss": true,
+		"skipAutoResumeSeededSearch": true,
+		"skipAutoResumeCompletion": true,
+		"skipAutoResumeWebhook": true,
+		"skipPieceBoundarySafetyCheck": false
+	}`)
+
+	stored, err := store.GetSettings(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, map[string]any{
+		"rssAutomationTags":              []string{"rss"},
+		"seededSearchTags":               []string{"seeded"},
+		"completionSearchTags":           []string{"completion"},
+		"webhookTags":                    []string{"webhook"},
+		"inheritSourceTags":              true,
+		"rssSourceCategories":            []string{"movies"},
+		"rssSourceTags":                  []string{"ubuntu"},
+		"rssSourceExcludeCategories":     []string{"games"},
+		"rssSourceExcludeTags":           []string{"linux"},
+		"webhookSourceCategories":        []string{"tv"},
+		"webhookSourceTags":              []string{"anime"},
+		"webhookSourceExcludeCategories": []string{"xxx"},
+		"webhookSourceExcludeTags":       []string{"music"},
+		"skipAutoResumeRss":              true,
+		"skipAutoResumeSeededSearch":     true,
+		"skipAutoResumeCompletion":       true,
+		"skipAutoResumeWebhook":          true,
+		"skipPieceBoundarySafetyCheck":   false,
+	}, sourceFields(stored))
+
+	// Sending the GET response back with PUT keeps every value: the GET
+	// body carries all 18 fields, so the handler must read every one of
+	// them or the stored value drops out.
+	_, getBody := get()
+	put(getBody)
+
+	roundTripped, err := store.GetSettings(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, sourceFields(stored), sourceFields(roundTripped))
+
+	// A PUT body that omits the source fields stores defaults, not zero
+	// values: the tag lists keep ["cross-seed"] and the piece boundary
+	// safety check stays on.
+	put(`{"seasonPackCoverageThreshold":0.75}`)
+
+	minimal, err := store.GetSettings(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, []string{"cross-seed"}, minimal.RSSAutomationTags)
+	require.Equal(t, []string{"cross-seed"}, minimal.SeededSearchTags)
+	require.Equal(t, []string{"cross-seed"}, minimal.CompletionSearchTags)
+	require.Equal(t, []string{"cross-seed"}, minimal.WebhookTags)
+	require.False(t, minimal.InheritSourceTags)
+	require.Empty(t, minimal.RSSSourceCategories)
+	require.Empty(t, minimal.RSSSourceTags)
+	require.Empty(t, minimal.RSSSourceExcludeCategories)
+	require.Empty(t, minimal.RSSSourceExcludeTags)
+	require.Empty(t, minimal.WebhookSourceCategories)
+	require.Empty(t, minimal.WebhookSourceTags)
+	require.Empty(t, minimal.WebhookSourceExcludeCategories)
+	require.Empty(t, minimal.WebhookSourceExcludeTags)
+	require.False(t, minimal.SkipAutoResumeRSS)
+	require.False(t, minimal.SkipAutoResumeSeededSearch)
+	require.False(t, minimal.SkipAutoResumeCompletion)
+	require.False(t, minimal.SkipAutoResumeWebhook)
+	require.True(t, minimal.SkipPieceBoundarySafetyCheck)
+}
+
 func TestAutomationSettingsTitleRescuePatch(t *testing.T) {
 	handler, store := newTestCrossSeedHandler(t)
 

@@ -69,6 +69,27 @@ type automationSettingsRequest struct {
 	SeasonPackCategory             string                          `json:"seasonPackCategory"`
 	SeasonPackCategoryRules        []models.SeasonPackCategoryRule `json:"seasonPackCategoryRules"`
 	CategoryMappingRules           []models.CategoryMappingRule    `json:"categoryMappingRules"`
+	// Source filters, source-specific tagging, skip auto-resume and the piece
+	// boundary safety check: pointers so a PUT body that omits them keeps the
+	// default value instead of a zero value.
+	RSSAutomationTags              *[]string `json:"rssAutomationTags"`
+	SeededSearchTags               *[]string `json:"seededSearchTags"`
+	CompletionSearchTags           *[]string `json:"completionSearchTags"`
+	WebhookTags                    *[]string `json:"webhookTags"`
+	InheritSourceTags              *bool     `json:"inheritSourceTags"`
+	RSSSourceCategories            *[]string `json:"rssSourceCategories"`
+	RSSSourceTags                  *[]string `json:"rssSourceTags"`
+	RSSSourceExcludeCategories     *[]string `json:"rssSourceExcludeCategories"`
+	RSSSourceExcludeTags           *[]string `json:"rssSourceExcludeTags"`
+	WebhookSourceCategories        *[]string `json:"webhookSourceCategories"`
+	WebhookSourceTags              *[]string `json:"webhookSourceTags"`
+	WebhookSourceExcludeCategories *[]string `json:"webhookSourceExcludeCategories"`
+	WebhookSourceExcludeTags       *[]string `json:"webhookSourceExcludeTags"`
+	SkipAutoResumeRSS              *bool     `json:"skipAutoResumeRss"`
+	SkipAutoResumeSeededSearch     *bool     `json:"skipAutoResumeSeededSearch"`
+	SkipAutoResumeCompletion       *bool     `json:"skipAutoResumeCompletion"`
+	SkipAutoResumeWebhook          *bool     `json:"skipAutoResumeWebhook"`
+	SkipPieceBoundarySafetyCheck   *bool     `json:"skipPieceBoundarySafetyCheck"`
 	// Gazelle (OPS/RED) cross-seed settings.
 	GazelleEnabled       bool    `json:"gazelleEnabled"`
 	RedactedAPIKey       *string `json:"redactedApiKey"`
@@ -154,6 +175,22 @@ func (o *optionalInt) UnmarshalJSON(data []byte) error {
 	}
 	o.Value = &value
 	return nil
+}
+
+// resolveStringSlice and resolveBool keep a default for fields a PUT body
+// omits, mirroring the autoResumeMaxDownloadMb handling.
+func resolveStringSlice(def []string, v *[]string) []string {
+	if v != nil {
+		return *v
+	}
+	return def
+}
+
+func resolveBool(def bool, v *bool) bool {
+	if v != nil {
+		return *v
+	}
+	return def
 }
 
 type searchSettingsPatchRequest struct {
@@ -1024,6 +1061,11 @@ func (h *CrossSeedHandler) UpdateAutomationSettings(w http.ResponseWriter, r *ht
 		return
 	}
 
+	// Fields the PUT body omits keep their defaults instead of zero values,
+	// so a client that does not know a field cannot clear the default tags
+	// or disable the piece boundary safety check.
+	defaults := models.DefaultCrossSeedAutomationSettings()
+
 	settings := &models.CrossSeedAutomationSettings{
 		Enabled:                        req.Enabled,
 		RunIntervalMinutes:             req.RunIntervalMinutes,
@@ -1053,6 +1095,24 @@ func (h *CrossSeedHandler) UpdateAutomationSettings(w http.ResponseWriter, r *ht
 		SeasonPackCategory:             strings.TrimSpace(req.SeasonPackCategory),
 		SeasonPackCategoryRules:        normalizeSeasonPackCategoryRules(req.SeasonPackCategoryRules),
 		CategoryMappingRules:           normalizeCategoryMappingRules(req.CategoryMappingRules),
+		RSSAutomationTags:              resolveStringSlice(defaults.RSSAutomationTags, req.RSSAutomationTags),
+		SeededSearchTags:               resolveStringSlice(defaults.SeededSearchTags, req.SeededSearchTags),
+		CompletionSearchTags:           resolveStringSlice(defaults.CompletionSearchTags, req.CompletionSearchTags),
+		WebhookTags:                    resolveStringSlice(defaults.WebhookTags, req.WebhookTags),
+		InheritSourceTags:              resolveBool(defaults.InheritSourceTags, req.InheritSourceTags),
+		RSSSourceCategories:            resolveStringSlice(defaults.RSSSourceCategories, req.RSSSourceCategories),
+		RSSSourceTags:                  resolveStringSlice(defaults.RSSSourceTags, req.RSSSourceTags),
+		RSSSourceExcludeCategories:     resolveStringSlice(defaults.RSSSourceExcludeCategories, req.RSSSourceExcludeCategories),
+		RSSSourceExcludeTags:           resolveStringSlice(defaults.RSSSourceExcludeTags, req.RSSSourceExcludeTags),
+		WebhookSourceCategories:        resolveStringSlice(defaults.WebhookSourceCategories, req.WebhookSourceCategories),
+		WebhookSourceTags:              resolveStringSlice(defaults.WebhookSourceTags, req.WebhookSourceTags),
+		WebhookSourceExcludeCategories: resolveStringSlice(defaults.WebhookSourceExcludeCategories, req.WebhookSourceExcludeCategories),
+		WebhookSourceExcludeTags:       resolveStringSlice(defaults.WebhookSourceExcludeTags, req.WebhookSourceExcludeTags),
+		SkipAutoResumeRSS:              resolveBool(defaults.SkipAutoResumeRSS, req.SkipAutoResumeRSS),
+		SkipAutoResumeSeededSearch:     resolveBool(defaults.SkipAutoResumeSeededSearch, req.SkipAutoResumeSeededSearch),
+		SkipAutoResumeCompletion:       resolveBool(defaults.SkipAutoResumeCompletion, req.SkipAutoResumeCompletion),
+		SkipAutoResumeWebhook:          resolveBool(defaults.SkipAutoResumeWebhook, req.SkipAutoResumeWebhook),
+		SkipPieceBoundarySafetyCheck:   resolveBool(defaults.SkipPieceBoundarySafetyCheck, req.SkipPieceBoundarySafetyCheck),
 		GazelleEnabled:                 req.GazelleEnabled,
 		RedactedAPIKey:                 patchSecret(req.RedactedAPIKey),
 		OrpheusAPIKey:                  patchSecret(req.OrpheusAPIKey),
